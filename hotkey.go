@@ -65,7 +65,6 @@ package hotkey
 
 import (
 	"errors"
-	"fmt"
 	"runtime"
 	"strings"
 )
@@ -77,11 +76,17 @@ type Event struct{}
 type Hotkey struct {
 	platformHotkey
 
-	Signal   string
-	Callback func()
+	Signal    string
+	Callbacks []func()
 
 	mods []Modifier
 	key  Key
+}
+
+var splitStr = "_"
+
+func SetSplitStr(str string) {
+	splitStr = str
 }
 
 var registeredHotkey = make(map[string]*Hotkey)
@@ -102,10 +107,17 @@ func New(mods []Modifier, key Key) *Hotkey {
 	return hk
 }
 
-func getHkInfo(modifier, key string) (modifierSort, keyName, signal string) {
-	if len(modifier) > 0 {
-		k0 := [4]string{}
-		for _, v := range strings.Split(modifier, "") {
+func getHkInfo(hkStr, signalStr string) (modifierSort, keyName, signal string) {
+	hkList := strings.Split(hkStr, splitStr)
+	hkLen := len(hkList)
+	if hkLen == 0 {
+		return modifierSort, keyName, signal
+	}
+	k0 := [4]string{}
+	if hkLen == 2 {
+		// 简写形式: csa_a
+		keyName = hkList[1]
+		for _, v := range strings.Split(hkList[0], "") {
 			switch v {
 			case "w":
 				k0[0] = "w"
@@ -117,30 +129,27 @@ func getHkInfo(modifier, key string) (modifierSort, keyName, signal string) {
 				k0[3] = "a"
 			}
 		}
-		modifierSort = strings.Join(k0[:], "")
-	}
-
-	for _, v := range strings.Fields(key) {
-		v = strings.ToLower(v)
-		if v == "down" {
-			if signal == "" {
-				signal = v
-			}
-		} else if v == "up" {
-			if signal == "" {
-				signal = v
-			}
-		} else {
-			if keyName == "" {
+	} else {
+		for _, v := range hkList {
+			switch v {
+			case "win":
+				k0[0] = "w"
+			case "ctrl":
+				k0[1] = "c"
+			case "shift":
+				k0[2] = "s"
+			case "alt":
+				k0[3] = "a"
+			default:
 				keyName = v
 			}
 		}
-		if signal != "" && keyName != "" {
-			break
-		}
 	}
-	if signal == "" {
-		signal = "down"
+	modifierSort = strings.Join(k0[:], "")
+
+	signal = "down"
+	if signalStr == "up" || signalStr == "press" {
+		signal = signalStr
 	}
 
 	return modifierSort, keyName, signal
@@ -165,10 +174,10 @@ func getModifier(modifier string) (mod []Modifier) {
 	return mod
 }
 
-func Register(modifier, key string, callback func()) error {
+func Register(modifier, key string, callbacks ...func()) error {
 	modifierSort, keyName, signal := getHkInfo(modifier, key)
 
-	keyCode, ok := keyList[keyName]
+	keyCode, ok := keyCodeWin[keyName]
 	if !ok {
 		return errors.New("key error")
 	}
@@ -177,7 +186,7 @@ func Register(modifier, key string, callback func()) error {
 
 	hk := New(mod, keyCode)
 	hk.Signal = signal
-	hk.Callback = callback
+	hk.Callbacks = callbacks
 
 	registeredHotkey[modifierSort+keyName+signal] = hk
 
@@ -208,9 +217,27 @@ func Unregister(modifier, key string) error {
 
 // String returns a string representation of the hotkey.
 func (hk *Hotkey) String() string {
-	s := fmt.Sprintf("%v", hk.key)
+	s := [6]string{}
 	for _, mod := range hk.mods {
-		s += fmt.Sprintf("+%v", mod)
+		if mod&ModWin != 0 {
+			s[0] = "win"
+		} else if mod&ModCtrl != 0 {
+			s[1] = "ctrl"
+		} else if mod&ModShift != 0 {
+			s[2] = "shift"
+		} else if mod&ModAlt != 0 {
+			s[3] = "alt"
+		}
 	}
-	return s
+
+	for k, v := range keyCodeWin {
+		if v == hk.key {
+			s[4] = k
+			break
+		}
+	}
+
+	s[5] = hk.Signal
+
+	return strings.Join(s[:], " ")
 }
